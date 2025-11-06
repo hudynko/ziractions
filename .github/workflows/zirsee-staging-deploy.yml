@@ -136,6 +136,7 @@ jobs:
           📅 Deployment Time: $(date)
           🎯 Environment: staging
           🌿 Branch/Tag: $BRANCH_NAME
+          📝 Build Type: $BUILD_TYPE
           ⚡ Quick Deploy Mode: $QUICK_DEPLOY
           🔧 Frontend Environment Variables: $ENV_VARS
           🔧 Backend Environment Variables: $ENV_VARS_BACKEND
