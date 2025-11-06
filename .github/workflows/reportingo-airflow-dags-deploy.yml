@@ -1,0 +1,135 @@
+name: Deploy Reportingo Airflow DAGs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'dags/**'
+
+jobs:
+  deploy:
+    name: Deploy Reportingo DAGs
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment Variables
+        run: |
+          echo "ENVIRONMENT=reportingo-airflow" >> $GITHUB_ENV
+          echo "SSH_HOST=${{ secrets.SSH_HOST }}" >> $GITHUB_ENV
+          echo "SSH_USER=${{ secrets.SSH_USER }}" >> $GITHUB_ENV
+          echo "TIMESTAMP=$(date +%Y%m%d_%H%M%S)" >> $GITHUB_ENV
+          echo "DEPLOYMENT_LOG_FILE=reportingo_dags_deployment_$(date +%Y%m%d_%H%M%S).log" >> $GITHUB_ENV
+
+      - name: Install WireGuard
+        run: |
+          echo "🔧 Installing WireGuard..."
+          sudo apt-get update
+          sudo apt-get install -y wireguard
+          echo "✅ WireGuard installed successfully."
+
+      - name: Setup WireGuard Configuration
+        run: |
+          echo "🔧 Setting up WireGuard configuration..."
+          echo "${{ secrets.WIREGUARD_CONFIG }}" | sudo tee /etc/wireguard/wg0.conf > /dev/null
+          sudo chmod 600 /etc/wireguard/wg0.conf
+          echo "✅ WireGuard configuration created."
+
+      - name: Connect to WireGuard
+        run: |
+          echo "🔗 Connecting to WireGuard VPN..."
+          sudo wg-quick up wg0
+          echo "✅ WireGuard connected successfully."
+          
+          echo "🔍 Verifying connection..."
+          sudo wg show
+          
+          echo "🌐 Testing connectivity..."
+          ping -c 3 $SSH_HOST || echo "⚠️ Ping test failed, but proceeding with deployment..."
+
+      - name: Setup SSH
+        run: |
+          echo "🔧 Setting up SSH configuration..."
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          
+          # Add host to known_hosts to avoid interactive prompts
+          ssh-keyscan -H $SSH_HOST >> ~/.ssh/known_hosts
+          
+          echo "✅ SSH configured successfully."
+
+      - name: Test SSH Connection
+        run: |
+          echo "🔍 Testing SSH connection to $SSH_HOST..."
+          ssh -o ConnectTimeout=10 $SSH_USER@$SSH_HOST "echo 'SSH connection successful! Server time:'; date"
+          echo "✅ SSH connection verified."
+
+      - name: Deploy Reportingo Airflow DAGs
+        run: |
+          echo "🚀 Starting Reportingo Airflow DAGs Deployment"
+          echo "=============================================="
+          echo "🎯 Environment: $ENVIRONMENT"
+          echo "🖥️  Target Host: $SSH_HOST"
+          echo "📅 Timestamp: $TIMESTAMP"
+          echo ""
+
+          # Run deployment on remote host
+          ssh $SSH_USER@$SSH_HOST << 'EOF'
+          set -e
+          
+          # Create deployment info file
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          cat > ~/deployment_info_$TIMESTAMP.txt << INFOEOF
+          ===========================================
+          🚀 Reportingo Airflow DAGs Deployment Info
+          ===========================================
+          📅 Deployment Time: $(date)
+          🎯 Environment: Reportingo Airflow Production
+          🖥️  Target Host: $SSH_HOST
+          👤 Deployed By: GitHub Actions
+          📋 Workflow: reportingo-airflow-dags-deploy.yml
+          📂 Target: /docker/airflow-reportingo-production/dags/
+          ===========================================
+          INFOEOF
+          echo "✅ Deployment info file created successfully."
+          echo "📄 Deployment info file created at ~/deployment_info_$TIMESTAMP.txt"
+          
+          echo "🔄 Starting DAGs deployment script..."
+          if [ -f "/docker/projects/deploy_scripts/pullAndCopyReportingoDags.sh" ]; then
+            echo "🚀 Executing Reportingo DAGs deployment..."
+
+            stdbuf -oL -eL bash -l -c "cd /docker/projects/deploy_scripts && ./pullAndCopyReportingoDags.sh 2>&1 | tee /tmp/reportingo_dags_deploy.log"
+
+            echo "✅ Reportingo DAGs deployment completed successfully"
+          else
+            echo "❌ Error: Deployment script not found at /docker/projects/deploy_scripts/pullAndCopyReportingoDags.sh"
+            exit 1
+          fi
+          EOF
+
+      - name: Deployment Summary
+        run: |
+          echo "📊 Deployment Summary"
+          echo "===================="
+          echo "✅ Environment: $ENVIRONMENT"
+          echo "✅ Target Host: $SSH_HOST"
+          echo "✅ Reportingo Airflow DAGs deployment completed."
+          echo "✅ Remote Log File: ~/$DEPLOYMENT_LOG_FILE"
+          echo "✅ Timestamp: $TIMESTAMP"
+          echo ""
+          echo "📝 To monitor deployment logs on the remote server:"
+          echo "   ssh $SSH_USER@$SSH_HOST 'tail -f /tmp/reportingo_dags_deploy.log'"
+          echo ""
+          echo "🔍 To check DAGs status:"
+          echo "   ssh $SSH_USER@$SSH_HOST 'ls -la /docker/airflow-reportingo-production/dags/'"
+
+      - name: Cleanup VPN Connection
+        if: always()
+        run: |
+          echo "🧹 Cleaning up WireGuard connection..."
+          sudo wg-quick down wg0 || true
+          echo "✅ WireGuard disconnected successfully."
