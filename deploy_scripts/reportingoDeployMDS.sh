@@ -52,8 +52,8 @@ SKIP_CLEANUP="$4"
 BUILD_TYPE="${5:-full}"  # ✅ Shift up
 QUICK_DEPLOY="${6:-full}"
 
-SRC_DIR="/docker/projects/reportingo/reportingo_staging_defaults"
-WORKDIR="/docker/projects/reportingo/workdirs/reportingo-staging"
+SRC_DIR="/docker/projects/mds/reportingo_production_defaults"
+WORKDIR="/docker/projects/mds/workdirs/default-production"
 
 echo "branch: $BRANCH"
 echo "Extraenvironment variables frontend: $EXTRA_ENV"
@@ -68,18 +68,9 @@ if [ "$BUILD_TYPE" = "full" ] && [ "$QUICK_DEPLOY" != "update" ]; then
   shopt -s dotglob nullglob
   cp -a "$SRC_DIR"/. "$WORKDIR/"
   shopt -u dotglob nullglob
-
-  # Copy airflow defaults and update
-  echo "📁 Copying airflow defaults to $WORKDIR/airflow-main"
-  mkdir -p "$WORKDIR/airflow-main"
-  cp -a "/docker/airflow-default"/. "$WORKDIR/airflow-main/"
-
-  cd "$WORKDIR/airflow-main" || exit 1
-  echo "🔄 Updating airflow repository"
-  git pull
-  cd "$WORKDIR" || exit 1
-  echo "Git clone and checkout branch: $BRANCH"
+  
   echo "Current working directory: $(pwd)"
+  cd "$WORKDIR" || exit 1
   # OPTIONAL: Checkout correct git branch inside copied folder (if .git is copied)
   git clone -b "$BRANCH" git@github.com:TaskLogy/dabl-reportingo.git
 else
@@ -92,12 +83,12 @@ fi
 
 #cd "$WORKDIR/dabl-reportingo" || exit 1
 
-version="staging"
+version="latest"
 
 # Check if quick deploy mode
 
-echo "🔧 Full deployment mode - preparing Reportingo staging deployment for branch: $BRANCH"
-
+  echo "🔧 Full deployment mode - preparing Reportingo MDS production deployment for branch: $BRANCH"
+  
   echo "Extraenvironment variables: $EXTRA_ENV"
   if [ -n "$EXTRA_ENV" ]; then
     update_env_variables "$EXTRA_ENV" ".envfrontend" "frontend"
@@ -119,35 +110,35 @@ fi
 
 if [ "$BUILD_TYPE" = "backend" ]; then
     echo "🔧 Building backend only..."
-    docker rmi "10.0.0.2:5000/reportingobackendstaging:$version" 2>/dev/null || true
+
+    docker rmi "10.0.0.2:5000/reportingomdsbackendproduction:$version" 2>/dev/null || true
+    curl -X DELETE "http://10.0.0.2:5000/v2/reportingomdsbackendproduction/manifests/latest" 2>/dev/null || true
     
-    # Remove from registry (optional but ensures fresh push)
-    curl -X DELETE "http://10.0.0.2:5000/v2/reportingobackendstaging/manifests/latest" 2>/dev/null || true
-    if ! docker build --no-cache -t "10.0.0.2:5000/reportingobackendstaging:$version" -f DockerfileBackEnd . ; then
+    if ! docker build -t "10.0.0.2:5000/reportingomdsbackendproduction:$version" -f DockerfileBackEnd .; then
         echo "❌ Backend build failed! Stopping deployment."
         exit 1
     fi
-    docker push "10.0.0.2:5000/reportingobackendstaging:$version" > /dev/null 2>&1
-    
+    docker push "10.0.0.2:5000/reportingomdsbackendproduction:$version"
+
     echo "🚀 Backend-only deployment - updating service..."
-    docker service update --image "10.0.0.2:5000/reportingobackendstaging:$version"  --force reportingostaging_reportingoapistaging
+    docker service update --force --image "10.0.0.2:5000/reportingomdsbackendproduction:$version" reportingoproduction_reportingo-production-api
     echo "✅ Backend service updated successfully!"
     exit 0
     
 elif [ "$BUILD_TYPE" = "frontend" ]; then
-    docker rmi "10.0.0.2:5000/reportingofrontendstaging:$version" 2>/dev/null || true
-    
-    # Remove from registry (optional but ensures fresh push)
-    curl -X DELETE "http://10.0.0.2:5000/v2/reportingofrontendstaging/manifests/latest" 2>/dev/null || true
     echo "🔧 Building frontend only..."
-    if ! docker build --no-cache -t "10.0.0.2:5000/reportingofrontendstaging:$version" -f DockerfileFrontEnd .; then
+    
+    docker rmi "10.0.0.2:5000/reportingomdsfrontendproduction:$version" 2>/dev/null || true
+    curl -X DELETE "http://10.0.0.2:5000/v2/reportingomdsfrontendproduction/manifests/latest" 2>/dev/null || true
+
+    if ! docker build --no-cache -t "10.0.0.2:5000/reportingomdsfrontendproduction:$version" -f DockerfileFrontEnd .; then
         echo "❌ Frontend build failed! Stopping deployment."
         exit 1
     fi
-    docker push "10.0.0.2:5000/reportingofrontendstaging:$version" > /dev/null 2>&1
-    
+    docker push "10.0.0.2:5000/reportingomdsfrontendproduction:$version"
+
     echo "🚀 Frontend-only deployment - updating service..."
-    docker service update --image "10.0.0.2:5000/reportingofrontendstaging:$version" --force reportingostaging_frontendstaging
+    docker service update --force --image "10.0.0.2:5000/reportingomdsfrontendproduction:$version" reportingoproduction_reportingo-production-frontend
     echo "✅ Frontend service updated successfully!"
     exit 0
     
@@ -156,8 +147,8 @@ else  # BUILD_TYPE = "full"
         # ✅ UPDATE-ONLY MODE: Just update both services
         echo "🚀 Quick update mode - updating both services with latest images..."
 
-        docker service update --image "10.0.0.2:5000/reportingobackendstaging:$version" --force reportingostaging_reportingoapistaging
-        docker service update --image "10.0.0.2:5000/reportingofrontendstaging:$version" --force reportingostaging_frontendstaging
+        docker service update --force --image "10.0.0.2:5000/reportingomdsbackendproduction:$version" reportingoproduction_reportingo-production-api
+        docker service update --force --image "10.0.0.2:5000/reportingomdsfrontendproduction:$version" reportingoproduction_reportingo-production-frontend
 
         echo "✅ Both services updated successfully!"
         exit 0
@@ -166,19 +157,19 @@ else  # BUILD_TYPE = "full"
         echo "🔧 Building both backend and frontend..."
         
         # Build backend
-        if ! docker build --no-cache -t "10.0.0.2:5000/reportingobackendstaging:$version" -f DockerfileBackEnd .; then
+        if ! docker build --no-cache -t "10.0.0.2:5000/reportingomdsbackendproduction:$version" -f DockerfileBackEnd .; then
             echo "❌ Backend build failed! Stopping deployment."
             exit 1
         fi
-        docker push "10.0.0.2:5000/reportingobackendstaging:$version" > /dev/null 2>&1
-        
+        docker push "10.0.0.2:5000/reportingomdsbackendproduction:$version"
+
         # Build frontend
-        if ! docker build --no-cache -t "10.0.0.2:5000/reportingofrontendstaging:$version" -f DockerfileFrontEnd .; then
+        if ! docker build --no-cache -t "10.0.0.2:5000/reportingomdsfrontendproduction:$version" -f DockerfileFrontEnd .; then
             echo "❌ Frontend build failed! Stopping deployment."
             exit 1
         fi
-        docker push "10.0.0.2:5000/reportingofrontendstaging:$version" > /dev/null 2>&1
-        
+        docker push "10.0.0.2:5000/reportingomdsfrontendproduction:$version"
+
         # Continue to full stack deployment (the code at the bottom runs)
     fi
 fi
@@ -193,30 +184,30 @@ cd "$WORKDIR" || exit 1
 # Environment variable updates (for quick deploy mode)
 
 # Stack deployment section
-STACK_NAME="reportingostaging"
+STACK_NAME="reportingomdsproduction"
 docker stack rm "$STACK_NAME"
-#while docker stack ls | grep -q "$STACK_NAME"; do sleep 2; done
+while docker stack ls | grep -q "$STACK_NAME"; do sleep 2; done
 
 # Clean PostgreSQL lock files after stack removal
-# if [ "$SKIP_CLEANUP" = "notskip" ]; then
-#     echo "🧹 Cleaning PostgreSQL lock files..."
-#     sudo rm -f /var/lib/postgresql/*/main/postmaster.pid 2>/dev/null || true
-#     sudo rm -f /var/lib/postgresql/*/main/*.lock 2>/dev/null || true
-    
-#     # Clean any leftover PostgreSQL processes
-#     sudo pkill -f "postgres.*airflow" 2>/dev/null || true
-    
-#     # Give it a moment
-#     sleep 3
-    
-#     echo "✅ PostgreSQL cleanup completed"
-# else
-#     echo "⏩ Skipping PostgreSQL cleanup"
-# fi
+#if [ "$SKIP_CLEANUP" = "notskip" ]; then
+#    echo "🧹 Cleaning PostgreSQL lock files..."
+#    sudo rm -f /var/lib/postgresql/*/main/postmaster.pid 2>/dev/null || true
+#    sudo rm -f /var/lib/postgresql/*/main/*.lock 2>/dev/null || true
+#    
+#    # Clean any leftover PostgreSQL processes
+#    sudo pkill -f "postgres.*airflow" 2>/dev/null || true
+#    
+#   # Give it a moment
+#    sleep 3
+#    
+#    echo "✅ PostgreSQL cleanup completed"
+#else
+#    echo "⏩ Skipping PostgreSQL cleanup"
+#fi
 
 TIMESTAMP=$(date +%s)
 export TAG=$BRANCH
-#latest_backend=$(curl -s http://10.0.0.2:5000/v2/reportingobackendstaging/tags/list | jq -r '.tags[-1]')
+#latest_backend=$(curl -s http://10.0.0.2:5000/v2/reportingobackendproduction/tags/list | jq -r '.tags[-1]')
 #version="$latest_backend"
 export VERSION=$version
 export DBTAG="${BRANCH}-${TIMESTAMP}"
@@ -224,6 +215,6 @@ export DBTAG="${BRANCH}-${TIMESTAMP}"
 echo "🔧 Generated docker-compose content:"
 envsubst < "$WORKDIR/docker-compose.yml"
 
-envsubst < "$WORKDIR/docker-compose.yml" | docker stack deploy -c - reportingostaging
+envsubst < "$WORKDIR/docker-compose.yml" | docker stack deploy -c - reportingomdsproduction
 echo "✅ Deployment completed successfully!"
 

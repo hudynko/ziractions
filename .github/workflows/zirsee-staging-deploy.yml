@@ -8,14 +8,6 @@ on:
         required: true
         default: 'main'
         type: string
-      quick_deploy:
-        description: 'Quick deploy mode: quick - skip build steps, just redeploy existing images'
-        required: false
-        default: 'full'
-        type: choice
-        options:
-          - full
-          - quick
       environment_variables_frontend:
         description: 'Environment variables to set frontend with ; for separated key=value pairs'
         required: false
@@ -31,6 +23,23 @@ on:
         required: false
         default: ''
         type: string
+      build_type:
+        description: 'Build type: full|backend|frontend (default: full)'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - backend
+          - frontend
+      quick_deploy:
+        description: 'Quick deploy mode: update - skip build/stack removal, just update services'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - update
 
 jobs:
   deploy:
@@ -45,6 +54,7 @@ jobs:
         run: |
           echo "ENVIRONMENT=staging" >> $GITHUB_ENV
           echo "BRANCH_NAME=${{ github.event.inputs.target_branch }}" >> $GITHUB_ENV
+          echo "BUILD_TYPE=${{ github.event.inputs.build_type }}" >> $GITHUB_ENV
           echo "QUICK_DEPLOY=${{ github.event.inputs.quick_deploy }}" >> $GITHUB_ENV
           echo "ENV_VARS=${{ github.event.inputs.environment_variables_frontend }}" >> $GITHUB_ENV
           echo "ENV_VARS_BACKEND=${{ github.event.inputs.environment_variables_backend }}" >> $GITHUB_ENV
@@ -105,6 +115,7 @@ jobs:
           echo "🎯 Environment: $ENVIRONMENT"
           echo "🌿 Branch: $BRANCH_NAME"
           echo "🖥️  Target Host: $SSH_HOST"
+          echo "📝 Build Type: $BUILD_TYPE"
           echo "⚡ Quick Deploy: $QUICK_DEPLOY"
           echo "🔧 Frontend Env Vars: $ENV_VARS"
           echo "🔧 Backend Env Vars: $ENV_VARS_BACKEND"
@@ -141,18 +152,13 @@ jobs:
           if [ -f "/docker/projects/deploy_scripts/reportingodeploystaging.sh" ]; then
             echo "Parameters to pass:"
             echo "  Branch: $BRANCH_NAME"
-            echo "  Quick Deploy: $QUICK_DEPLOY"
             echo "  Frontend Env Vars: $ENV_VARS"
             echo "  Backend Env Vars: $ENV_VARS_BACKEND"
             echo "  Skip Cleanup: $SKIP_CLEANUP"
+            echo "  Build Type: $BUILD_TYPE"
+            echo "  Quick Deploy: $QUICK_DEPLOY"
 
-            # Convert QUICK_DEPLOY from full/quick to proper parameter format
-            QUICK_PARAM=""
-            if [ "$QUICK_DEPLOY" = "quick" ]; then
-              QUICK_PARAM="quick"
-            fi
-
-            stdbuf -oL -eL bash -l -c "cd /docker/projects/deploy_scripts && ./reportingodeploystaging.sh '$BRANCH_NAME' '$QUICK_PARAM' '$ENV_VARS' '$ENV_VARS_BACKEND' '$SKIP_CLEANUP' 2>&1 | tee /tmp/deploy.log"
+            stdbuf -oL -eL bash -l -c "cd /docker/projects/deploy_scripts && ./reportingodeploystaging.sh '$BRANCH_NAME' '$ENV_VARS' '$ENV_VARS_BACKEND' '$SKIP_CLEANUP' '$BUILD_TYPE' '$QUICK_DEPLOY' 2>&1 | tee /tmp/deploy.log"
 
             echo "✅ Deployment script completed successfully"
           else
