@@ -1,0 +1,57 @@
+# Example workflow file to place in your main project's .github/workflows/ directory
+# This calls the remote action from hudynko/ziractions
+
+name: Deploy Green Environment (Remote)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Target branch to deploy'
+        required: true
+        default: 'main'
+        type: string
+      environment_variables_frontend:
+        description: 'Frontend environment variables (semicolon separated key=value pairs)'
+        required: false
+        default: 'VITE_FEATURE_FLAGS='
+        type: string
+      environment_variables_backend:
+        description: 'Backend environment variables (semicolon separated key=value pairs)'
+        required: false
+        default: ''
+        type: string
+      skip_cleanup:
+        description: 'Skip PostgreSQL cleanup'
+        required: false
+        default: ''
+        type: string
+      build_type:
+        description: 'Build type'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - backend
+          - frontend
+      quick_deploy:
+        description: 'Quick deploy mode'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - update
+
+jobs:
+  deploy-green:
+    uses: hudynko/ziractions/.github/workflows/zirsee-green-deploy.yml@main
+    with:
+      target_branch: ${{ github.event.inputs.target_branch }}
+      environment_variables_frontend: ${{ github.event.inputs.environment_variables_frontend }}
+      environment_variables_backend: ${{ github.event.inputs.environment_variables_backend }}
+      skip_cleanup: ${{ github.event.inputs.skip_cleanup }}
+      build_type: ${{ github.event.inputs.build_type }}
+      quick_deploy: ${{ github.event.inputs.quick_deploy }}
+    secrets: inherit
